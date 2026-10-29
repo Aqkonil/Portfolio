@@ -15,7 +15,7 @@ header{display:flex;align-items:center;justify-content:space-between;gap:12px;fl
 .mark{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:6px;background:var(--btn);color:#fff;font-size:.85rem}
 .right{display:flex;align-items:center;gap:16px}
 main{max-width:960px;margin:0 auto;padding:32px 20px 60px}
-.view[hidden]{display:none}
+[hidden]{display:none!important}
 .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:22px;box-shadow:0 1px 2px rgba(15,27,45,.04)}
 .narrow{max-width:420px;margin:24px auto}
 h1{margin:0 0 14px;font-size:1.6rem;font-weight:700;letter-spacing:-.2px}
@@ -85,12 +85,21 @@ footer{border-top:1px solid var(--line);padding:20px;text-align:center;font-size
 </section>
 
 <section class="view" id="auth" hidden>
+  <form class="card narrow" id="linkForm">
+    <h1>Sign in with email link</h1>
+    <p class="muted" style="margin:0">No password needed. We send a sign-in link to your email.</p>
+    <label>Email<input type="email" id="lEmail" required autocomplete="email"></label>
+    <div class="err" id="lErr" role="alert"></div><div class="ok" id="lOk"></div>
+    <button class="btn full" id="lBtn">Email me a sign-in link</button>
+  </form>
   <form class="card narrow" id="authForm">
     <h1 id="authTitle">Sign In</h1>
     <label>Email<input type="email" id="email" required autocomplete="email"></label>
     <label>Password
       <div class="pw"><input type="password" id="pass" required minlength="8" autocomplete="current-password">
       <button type="button" class="eye" id="eye" aria-pressed="false" aria-label="Show password"></button></div></label>
+    <label id="confLabel" hidden>Confirm password<input type="password" id="pass2" autocomplete="new-password"></label>
+    <div class="muted" id="hint" hidden style="font-size:.82rem;margin-top:8px">Use at least 8 characters, with a letter and a number.</div>
     <div class="err" id="authErr" role="alert"></div><div class="ok" id="authOk"></div>
     <button class="btn full" id="authBtn">Sign In</button>
     <div class="links"><button type="button" class="link" id="switchMode">Create account</button>
@@ -155,6 +164,14 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const $ = s => document.querySelector(s);
 const EYE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>', EYEOFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.9 17.9A10.6 10.6 0 0112 19c-6.5 0-10-7-10-7a18 18 0 015.1-5.9M9.9 4.2A10 10 0 0112 4c6.5 0 10 8 10 8a18 18 0 01-2.2 3.2M1 1l22 22"/></svg>';
 $("#eye").innerHTML = EYE;
+function checkEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e) ? "" : "Please enter a valid email address."; }
+function checkPassword(p, email) {
+  if (p.length < 8) return "Password must have at least 8 characters.";
+  if (!/[A-Za-z]/.test(p) || !/\d/.test(p)) return "Password must include a letter and a number.";
+  const name = (email || "").split("@")[0].toLowerCase();
+  if (name.length >= 4 && p.toLowerCase().includes(name)) return "Password must not contain your email name.";
+  return "";
+}
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const CATS = ["School achievement","Mathematics Olympiad","Programming competition","IT project","Robotics","Football","Volleyball","Basketball","Other sport","Science project","Research","Volunteering","Leadership","Art and design","Entrepreneurship","Other activity"];
 const LVLS = [["school","School"],["city_district","City or District"],["regional","Regional or Oblast"],["national","National or Republican"],["international","International"],["other","Other"]];
@@ -181,6 +198,7 @@ function setMode(m) {
   $("#authBtn").textContent = login ? "Sign In" : "Create Account";
   $("#switchMode").textContent = login ? "Create account" : "I already have an account";
   $("#pass").autocomplete = login ? "current-password" : "new-password";
+  $("#confLabel").hidden = login; $("#hint").hidden = login; $("#pass2").required = !login; $("#pass2").value = "";
   $("#authErr").textContent = ""; $("#authOk").textContent = "";
 }
 document.addEventListener("click", e => {
@@ -195,7 +213,7 @@ $("#switchMode").onclick = () => setMode(mode === "login" ? "signup" : "login");
 // Password eye (hidden by default)
 $("#eye").onclick = () => {
   const show = $("#pass").type === "password";
-  $("#pass").type = show ? "text" : "password";
+  $("#pass").type = show ? "text" : "password"; $("#pass2").type = show ? "text" : "password";
   $("#eye").setAttribute("aria-pressed", show);
   $("#eye").setAttribute("aria-label", show ? "Hide password" : "Show password");
   $("#eye").innerHTML = show ? EYEOFF : EYE;
@@ -207,6 +225,10 @@ $("#authForm").onsubmit = async e => {
   e.preventDefault(); $("#authErr").textContent = ""; $("#authOk").textContent = "";
   const btn = $("#authBtn"); const label = btn.textContent; btn.disabled = true; btn.textContent = "Please wait...";
   const email = $("#email").value.trim(), password = $("#pass").value;
+  if (mode === "signup") {
+    const msg = checkEmail(email) || checkPassword(password, email) || (password !== $("#pass2").value ? "Passwords do not match." : "");
+    if (msg) { $("#authErr").textContent = msg; btn.disabled = false; btn.textContent = label; return; }
+  }
   if (mode === "login") {
     const { error } = await sb.auth.signInWithPassword({ email, password });
     if (error) $("#authErr").textContent = error.message === "Email not confirmed" ? "Please verify your email first." : error.message;
@@ -217,6 +239,16 @@ $("#authForm").onsubmit = async e => {
   }
   btn.disabled = false; btn.textContent = label;
 };
+$("#linkForm").onsubmit = async e => {
+  e.preventDefault(); $("#lErr").textContent = ""; $("#lOk").textContent = "";
+  const email = $("#lEmail").value.trim(), msg = checkEmail(email);
+  if (msg) { $("#lErr").textContent = msg; return; }
+  const btn = $("#lBtn"); btn.disabled = true; btn.textContent = "Please wait...";
+  const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: here } });
+  btn.disabled = false; btn.textContent = "Email me a sign-in link";
+  if (error) $("#lErr").textContent = error.message;
+  else $("#lOk").textContent = "We sent a sign-in link to your email. Open it to continue.";
+};
 $("#forgotForm").onsubmit = async e => {
   e.preventDefault(); $("#fErr").textContent = ""; $("#fOk").textContent = "";
   const { error } = await sb.auth.resetPasswordForEmail($("#fEmail").value.trim(), { redirectTo: here });
@@ -224,6 +256,7 @@ $("#forgotForm").onsubmit = async e => {
 };
 $("#resetForm").onsubmit = async e => {
   e.preventDefault(); $("#rErr").textContent = "";
+  const m = checkPassword($("#rPass").value, ""); if (m) { $("#rErr").textContent = m; return; }
   const { error } = await sb.auth.updateUser({ password: $("#rPass").value });
   if (error) $("#rErr").textContent = error.message; else { recovery = false; enterApp(); }
 };
