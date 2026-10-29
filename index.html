@@ -53,6 +53,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-
 .pill{display:inline-block;border:1px solid var(--line);border-radius:4px;padding:2px 8px;font-size:.75rem;margin-top:8px;color:var(--muted)}
 .del{background:none;border:0;color:#c0392b;cursor:pointer;font:inherit;font-size:.9rem}
 footer{border-top:1px solid var(--line);padding:20px;text-align:center;font-size:.85rem;color:var(--muted)}
+.opt{display:flex;align-items:center;gap:8px;font-weight:400;margin-top:8px}.opt input{width:auto;margin:0}.grp{font-size:.88rem;font-weight:600;margin-top:16px}
 </style>
 </head>
 <body>
@@ -62,6 +63,7 @@ footer{border-top:1px solid var(--line);padding:20px;text-align:center;font-size
     <nav id="nav" hidden>
       <button class="tab" data-tab="dashboard">Dashboard</button>
       <button class="tab" data-tab="portfolio">My Portfolio</button>
+      <button class="tab" data-tab="profile">Profile</button>
     </nav>
     <button class="sw" id="theme" role="switch" aria-checked="false" aria-label="Dark mode"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg><i></i></button>
     <button class="link muted" id="signout" hidden>Sign Out</button>
@@ -135,9 +137,40 @@ footer{border-top:1px solid var(--line);padding:20px;text-align:center;font-size
     <div class="row"><h1>My Portfolio</h1><div><button class="btn" id="addBtn" style="margin-top:0">Add Achievement</button></div></div>
     <div id="list" class="muted">Loading...</div>
   </div>
+  <div id="tab-profile" hidden>
+    <form class="card" id="profileForm" style="max-width:600px">
+      <h1>My Profile</h1>
+      <p class="muted" id="profIntro" hidden style="margin:0">Answer what you can. You can skip any question and finish later.</p>
+      <label>Country<input name="country"></label>
+      <label>Current school grade<input name="school_grade"></label>
+      <label>Graduation year<input name="graduation_year" type="number" min="2000" max="2100"></label>
+      <div class="grp">Study direction</div>
+      <label class="opt"><input type="radio" name="direction_mode" value="knows_major">I know what I want to study.</label>
+      <label class="opt"><input type="radio" name="direction_mode" value="needs_help">Help me choose my direction.</label>
+      <label>Preferred university major<input name="preferred_major"></label>
+      <label>Main interests (separate with commas)<input name="interests"></label>
+      <div class="grp">Where do you want to study?</div>
+      <label class="opt"><input type="checkbox" name="region" value="Europe">Europe</label><label class="opt"><input type="checkbox" name="region" value="Asia">Asia</label><label class="opt"><input type="checkbox" name="region" value="North America">North America</label><label class="opt"><input type="checkbox" name="region" value="South America">South America</label><label class="opt"><input type="checkbox" name="region" value="Africa">Africa</label><label class="opt"><input type="checkbox" name="region" value="Oceania">Oceania</label>
+      <label>Preferred study countries (separate with commas)<input name="study_countries"></label>
+      <label>Preferred language of study<input name="study_language"></label>
+      <label>Approximate yearly budget (USD)<input name="yearly_budget_usd" type="number" min="0"></label>
+      <label>Do you need a scholarship or financial aid?<select name="financial_aid"><option value="">Not answered</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+      <label>Current academic results<textarea name="academic_results" rows="2"></textarea></label>
+      <label>English level<select name="english_level"><option value="">Not answered</option><option>A1-A2 (Beginner)</option><option>B1-B2 (Intermediate)</option><option>C1-C2 (Advanced)</option><option>I am not sure</option></select></label>
+      <label>Existing achievements and activities<textarea name="existing_activities" rows="3"></textarea></label>
+      <div class="err" id="profErr"></div><div class="ok" id="profOk"></div>
+      <button class="btn full" id="profBtn">Save</button>
+      <button type="button" class="btn ghost full" id="skipBtn" hidden>Skip for now</button>
+    </form>
+  </div>
   <div id="tab-add" hidden>
     <form class="card" id="addForm" style="max-width:560px">
-      <h1>Add Achievement</h1>
+      <h1 id="addTitle">Add Achievement</h1>
+      <div id="fileBox">
+        <label>Certificate photo or PDF (optional)<input type="file" id="certFile" accept="image/jpeg,image/png,image/webp,application/pdf"></label>
+        <button type="button" class="btn ghost" id="aiBtn" hidden>Fill the form with AI</button>
+        <div class="muted" id="aiMsg" style="font-size:.88rem;margin-top:10px"></div>
+      </div>
       <label>Title<input name="title" required></label>
       <label>Description<textarea name="description" rows="3"></textarea></label>
       <label>Category<select name="category" id="cat"></select></label>
@@ -262,27 +295,36 @@ $("#resetForm").onsubmit = async e => {
 };
 $("#signout").onclick = async () => { await sb.auth.signOut(); };
 
+let cache = [], editId = null, onboarding = false, lastExtract = null;
 let recovery = false;
 sb.auth.onAuthStateChange((ev, session) => {
   if (ev === "PASSWORD_RECOVERY") { recovery = true; show("reset"); return; }
-  if (session && !recovery) enterApp();
+  if (session && !recovery && $("#app").hidden) enterApp();
   else if (!session) { $("#nav").hidden = true; $("#signout").hidden = true; show("landing"); }
 });
 
 // App
-function enterApp() { $("#nav").hidden = false; $("#signout").hidden = false; show("app"); tab(currentTab); }
+async function enterApp() {
+  $("#nav").hidden = false; $("#signout").hidden = false; show("app");
+  const { data: { user } } = await sb.auth.getUser();
+  const { data: p } = user ? await sb.from("profiles").select("onboarding_completed").eq("id", user.id).maybeSingle() : { data: null };
+  if (p && !p.onboarding_completed) { onboarding = true; tab("profile"); } else tab(currentTab);
+}
 let currentTab = "dashboard";
 function tab(name) {
   currentTab = name === "add" ? "portfolio" : name;
-  ["dashboard","portfolio","add"].forEach(t => $("#tab-" + t).hidden = t !== name);
+  if (name !== "add") editId = null;
+  if (name === "add" && editId === null) { $("#addForm").reset(); $("#addTitle").textContent = "Add Achievement"; lastExtract = null; $("#aiMsg").textContent = ""; $("#aiBtn").hidden = true; }
+  $("#fileBox").hidden = name === "add" && editId !== null;
+  ["dashboard","portfolio","add","profile"].forEach(t => $("#tab-" + t).hidden = t !== name);
   document.querySelectorAll(".tab").forEach(b => b.classList.toggle("on", b.dataset.tab === currentTab));
-  if (name === "dashboard") loadDash(); if (name === "portfolio") loadList();
+  if (name === "dashboard") loadDash(); if (name === "portfolio") loadList(); if (name === "profile") loadProfile();
 }
 $("#addBtn").onclick = () => { $("#addForm").reset(); $("#addErr").textContent = ""; tab("add"); };
 
 async function fetchAll() {
   const { data, error } = await sb.from("achievements").select("*").order("created_at", { ascending: false });
-  return { data: data || [], error };
+  cache = data || []; return { data: cache, error };
 }
 async function loadDash() {
   const { data, error } = await fetchAll();
@@ -302,10 +344,13 @@ async function loadList() {
   $("#list").innerHTML = data.map(a => `<div class="card item"><div>
     <b>${esc(a.title)}</b>
     <div class="muted" style="font-size:.9rem">${esc(a.category)} · ${esc((LVLS.find(l => l[0] === a.level) || [])[1])}${a.result ? " · " + esc(a.result) : ""}${a.event_date ? " · " + esc(a.event_date) : ""}</div>
+    ${a.description ? `<p style="margin:8px 0 0;font-size:.92rem">${esc(a.description)}</p>` : ""}
     <span class="pill">${esc(STATUS[a.verification_status])}</span></div>
-    <button class="del" data-del="${esc(a.id)}">Delete</button></div>`).join("");
+    <div><button class="link" data-edit="${esc(a.id)}">Edit</button> &nbsp; <button class="del" data-del="${esc(a.id)}">Delete</button></div></div>`).join("");
 }
 $("#list").onclick = async e => {
+  const eid = e.target.dataset.edit;
+  if (eid) { openEdit(cache.find(a => a.id === eid)); return; }
   const id = e.target.dataset.del; if (!id || !confirm("Delete this achievement?")) return;
   const { error } = await sb.from("achievements").delete().eq("id", id);
   if (error) alert(error.message); else loadList();
@@ -315,12 +360,106 @@ $("#addForm").onsubmit = async e => {
   const f = Object.fromEntries(new FormData(e.target));
   const { data: { user } } = await sb.auth.getUser();
   const btn = $("#saveBtn"); btn.disabled = true; btn.textContent = "Saving...";
-  const { error } = await sb.from("achievements").insert({
-    user_id: user.id, title: f.title, description: f.description || null, category: f.category,
+  const row = { title: f.title, description: f.description || null, category: f.category,
     event_name: f.event_name || null, organizer: f.organizer || null, event_date: f.event_date || null,
-    result: f.result || null, level: f.level, project_url: f.project_url || null });
+    result: f.result || null, level: f.level, project_url: f.project_url || null };
+  let error, newId = null;
+  if (editId) ({ error } = await sb.from("achievements").update(row).eq("id", editId));
+  else { const r = await sb.from("achievements").insert({ ...row, user_id: user.id }).select("id").single(); error = r.error; newId = r.data && r.data.id; }
+  const file = $("#certFile").files[0];
+  if (!error && newId && file) {
+    const path = `${user.id}/${newId}/${file.name.replace(/[^A-Za-z0-9._-]/g, "_")}`;
+    const up = await sb.storage.from("certificates").upload(path, file, { contentType: file.type });
+    let fe = up.error;
+    if (!fe) { const d = await sb.from("documents").insert({ achievement_id: newId, user_id: user.id, storage_path: path, mime_type: file.type, size_bytes: file.size, extracted: lastExtract }); fe = d.error; }
+    if (fe) alert("The achievement was saved, but the file could not be uploaded: " + fe.message);
+  }
   btn.disabled = false; btn.textContent = "Save achievement";
   if (error) $("#addErr").textContent = error.message; else tab("portfolio");
+};
+
+function openEdit(a) {
+  if (!a) return; editId = a.id; const f = $("#addForm").elements;
+  ["title","description","category","event_name","organizer","event_date","result","level","project_url"].forEach(k => f[k].value = a[k] ?? "");
+  $("#addTitle").textContent = "Edit Achievement"; $("#addErr").textContent = ""; tab("add");
+}
+async function loadProfile() {
+  $("#profErr").textContent = ""; $("#profOk").textContent = "";
+  $("#profIntro").hidden = !onboarding; $("#skipBtn").hidden = !onboarding;
+  const { data: { user } } = await sb.auth.getUser();
+  const [a, b] = await Promise.all([sb.from("profiles").select("*").eq("id", user.id).maybeSingle(), sb.from("student_preferences").select("*").eq("user_id", user.id).maybeSingle()]);
+  const P = a.data || {}, Q = b.data || {}, f = $("#profileForm").elements;
+  f.country.value = P.country ?? ""; f.school_grade.value = P.school_grade ?? ""; f.graduation_year.value = P.graduation_year ?? "";
+  document.querySelectorAll("[name=direction_mode]").forEach(r => r.checked = r.value === Q.direction_mode);
+  f.preferred_major.value = Q.preferred_major ?? ""; f.interests.value = (Q.interests || []).join(", ");
+  document.querySelectorAll("[name=region]").forEach(c => c.checked = (Q.study_regions || []).includes(c.value));
+  f.study_countries.value = (Q.study_countries || []).join(", "); f.study_language.value = Q.study_language ?? "";
+  f.yearly_budget_usd.value = Q.yearly_budget_usd ?? "";
+  f.financial_aid.value = Q.needs_financial_aid === true ? "yes" : Q.needs_financial_aid === false ? "no" : "";
+  f.academic_results.value = Q.academic_results ?? ""; f.english_level.value = Q.english_level ?? "";
+  f.existing_activities.value = Q.existing_activities ?? "";
+}
+async function saveProfile(skip) {
+  $("#profErr").textContent = ""; $("#profOk").textContent = "";
+  const f = $("#profileForm").elements, { data: { user } } = await sb.auth.getUser();
+  const list = v => v.split(",").map(x => x.trim()).filter(Boolean), num = v => v === "" ? null : Number(v);
+  const r1 = await sb.from("profiles").update(skip ? { onboarding_completed: true } : {
+    country: f.country.value.trim() || null, school_grade: f.school_grade.value.trim() || null,
+    graduation_year: num(f.graduation_year.value), onboarding_completed: true }).eq("id", user.id);
+  let err = r1.error;
+  if (!skip && !err) {
+    const dm = document.querySelector("[name=direction_mode]:checked");
+    const r2 = await sb.from("student_preferences").upsert({ user_id: user.id, direction_mode: dm ? dm.value : null,
+      interests: list(f.interests.value), preferred_major: f.preferred_major.value.trim() || null,
+      study_regions: [...document.querySelectorAll("[name=region]:checked")].map(c => c.value),
+      study_countries: list(f.study_countries.value), study_language: f.study_language.value.trim() || null,
+      yearly_budget_usd: num(f.yearly_budget_usd.value), needs_financial_aid: f.financial_aid.value === "" ? null : f.financial_aid.value === "yes",
+      academic_results: f.academic_results.value.trim() || null, english_level: f.english_level.value || null,
+      existing_activities: f.existing_activities.value.trim() || null });
+    err = r2.error;
+  }
+  if (err) { $("#profErr").textContent = err.message; return; }
+  if (onboarding) { onboarding = false; tab("dashboard"); } else $("#profOk").textContent = "Saved.";
+}
+$("#profileForm").onsubmit = e => { e.preventDefault(); saveProfile(false); };
+$("#skipBtn").onclick = () => saveProfile(true);
+
+const toB64 = blob => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = rej; r.readAsDataURL(blob); });
+async function prepFile(file) {
+  if (file.type === "application/pdf") return { data: await toB64(file), media_type: file.type };
+  const url = URL.createObjectURL(file), img = new Image();
+  await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+  const k = Math.min(1, 1800 / Math.max(img.width, img.height)), c = document.createElement("canvas");
+  c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+  return { data: c.toDataURL("image/jpeg", 0.85).split(",")[1], media_type: "image/jpeg" };
+}
+$("#certFile").onchange = () => {
+  const f = $("#certFile").files[0]; $("#aiMsg").textContent = ""; lastExtract = null;
+  if (f && f.size > 10 * 1024 * 1024) { $("#certFile").value = ""; $("#aiMsg").textContent = "This file is too big. The limit is 10 MB."; $("#aiBtn").hidden = true; return; }
+  $("#aiBtn").hidden = !f;
+};
+$("#aiBtn").onclick = async () => {
+  const file = $("#certFile").files[0]; if (!file) return;
+  const btn = $("#aiBtn"), msg = t => $("#aiMsg").textContent = t;
+  btn.disabled = true; msg("Reading the document. This can take up to 30 seconds...");
+  try {
+    const payload = await prepFile(file);
+    const { data, error } = await sb.functions.invoke("extract-certificate", { body: payload });
+    if (error || !data || data.error) {
+      let m = "AI reading is not available yet. Please check that the extract-certificate function is set up in Supabase.";
+      if (error && error.context && error.context.json) { try { const j = await error.context.json(); if (j.error) m = j.error; } catch (e) {} }
+      else if (data && data.error) m = data.error;
+      msg(m); return;
+    }
+    const f = $("#addForm").elements;
+    ["title","description","event_name","organizer","event_date","result"].forEach(k => { if (data[k]) f[k].value = data[k]; });
+    if (CATS.includes(data.category)) f.category.value = data.category;
+    if (LVLS.some(l => l[0] === data.level)) f.level.value = data.level;
+    lastExtract = data;
+    msg("Done. Please check every field before saving. AI can make mistakes." + (data.student_name ? " Name on the document: " + data.student_name + "." : ""));
+  } catch (e) { msg("This file could not be read. Please use a JPG, PNG or PDF file."); }
+  finally { btn.disabled = false; }
 };
 
 // Start
